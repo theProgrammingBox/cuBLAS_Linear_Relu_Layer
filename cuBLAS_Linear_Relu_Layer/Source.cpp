@@ -12,48 +12,57 @@ using std::chrono::nanoseconds;
 const float ONE = 1.0f;
 const float ZERO = 0.0f;
 
-void MatMulMat(cublasHandle_t handle, size_t a, size_t b, size_t c, float* A, float* B, float* C) {
-	cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, c, a, b, &ONE, B, c, A, b, &ZERO, C, c);	// doing row-major math using column major apis
+void MatMulMat(cublasHandle_t handle, size_t matrix1Rows, size_t matrix1Columns, size_t matrix2Columns, float* matrix1, float* matrix2, float* matrix3) {
+	cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, matrix2Columns, matrix1Rows, matrix1Columns, &ONE, matrix2, matrix2Columns, matrix1, matrix1Columns, &ZERO, matrix3, matrix2Columns);	// doing row-major math using column major apis
 }
 
-void MatTMulMat(cublasHandle_t handle, size_t a, size_t b, size_t c, float* A, float* B, float* C) {
-	cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, c, a, b, &ONE, B, c, A, a, &ZERO, C, c);	// doing row-major math using column major apis
+void MatTMulMat(cublasHandle_t handle, size_t matrix1Rows, size_t matrix1Columns, size_t matrix2Columns, float* matrix1, float* matrix2, float* matrix3) {
+	cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, matrix2Columns, matrix1Rows, matrix1Columns, &ONE, matrix2, matrix2Columns, matrix1, matrix1Rows, &ZERO, matrix3, matrix2Columns);	// doing row-major math using column major apis
+	// change names, make it based of row major notation
 }
 
-void MatMulMatT(cublasHandle_t handle, size_t a, size_t b, size_t c, float* A, float* B, float* C) {
-	cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, c, a, b, &ONE, B, b, A, b, &ZERO, C, c);	// doing row-major math using column major apis
+void MatMulMatT(cublasHandle_t handle, size_t matrix1Rows, size_t matrix1Columns, size_t matrix2Columns, float* matrix1, float* matrix2, float* matrix3) {
+	cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, matrix2Columns, matrix1Rows, matrix1Columns, &ONE, matrix2, matrix1Columns, matrix1, matrix1Columns, &ZERO, matrix3, matrix2Columns);	// doing row-major math using column major apis
 }
 
 void RandFillMat(curandGenerator_t randomGenerator, float* matrix, size_t size, float mean = 0.0f, float deviation = 1.0f) {
-	curandGenerateNormal(randomGenerator, matrix, size + (size & 1), mean, deviation);	// required to be even, may cause a bug
+	curandGenerateNormal(randomGenerator, matrix, size + (size & 1), mean, deviation);	// required to be even, may cause matrix1Rows bug
 }
 
-__global__ void CudaRelu(float* inputMatrix, float* outputMatrix, size_t size) {
+__global__ void CudaLinearClipTahn(float* inputMatrix, float* outputMatrix, size_t size) {
 	size_t index = 1024 * blockIdx.x + threadIdx.x;
 	if (index < size) {
-		float item = inputMatrix[index];
-		outputMatrix[index] = (item > 0) * item;
+		float input = inputMatrix[index] + 1;
+		input = (input > 0) * input - 2;
+		outputMatrix[index] = (input < 0) * input + 1;
+		// -1 if input < -1, 1 if input > 1, otherwise input
+		// outputMatrix[index] = input < -1 ? -1 : (input > 1 ? 1 : input);
 	}
 }
 
-void Relu(float* inputMatrix, float* outputMatrix, size_t size) {
+void LinearClipTahn(float* inputMatrix, float* outputMatrix, size_t size) {
 	size_t blocks = 0.0009765625f * size + 1;	// I think this can't exceed 2147483647
 	dim3 threads(1024);							// x * y * z can't exceed 1024 it seems
-	CudaRelu <<<blocks, threads>>> (inputMatrix, outputMatrix, size);
+	CudaLinearClipTahn <<<blocks, threads>>> (inputMatrix, outputMatrix, size);
 }
 
-__global__ void CudaReluDerivative(float* inputMatrix, float* outputMatrix, size_t size) {
+__global__ void CudaLinearClipTahnDerivative(float* inputMatrix, float* gradientMatrix, float* outputMatrix, size_t size) {
 	size_t index = 1024 * blockIdx.x + threadIdx.x;
 	if (index < size) {
-		float item = inputMatrix[index];
-		outputMatrix[index] = (item > 0);
+		float input = inputMatrix[index];
+		float gradient = gradientMatrix[index];
+		bool go = input < 1;	// greater than 1
+		outputMatrix[index] = (1 - (go ^ (input > -1)) * (go ^ (gradient > 0))) * gradient;
+		// basically if input is greater than 1 and gradient is greater than 0, or input is less than -1 and gradient is less than 0, then output is 0
+		// just two sided relu that allows gradient to propagate if it brings the input closer to the boundary
+		// outputMatrix[index] = (input > 1 && gradient > 0) || (input < -1 && gradient < 0) ? 0 : gradient;
 	}
 }
 
-void ReluDerivative(float* inputMatrix, float* outputMatrix, size_t size) {
+void LinearClipTahnDerivative(float* inputMatrix, float* gradientMatrix, float* outputMatrix, size_t size) {
 	size_t blocks = 0.0009765625f * size + 1;	// I think this can't exceed 2147483647
 	dim3 threads(1024);							// x * y * z can't exceed 1024 it seems
-	CudaReluDerivative <<<blocks, threads>>> (inputMatrix, outputMatrix, size);
+	CudaLinearClipTahnDerivative <<<blocks, thread>>> (inputMatrix, gradientMatrix, outputMatrix, size);
 }
 
 int main() {
