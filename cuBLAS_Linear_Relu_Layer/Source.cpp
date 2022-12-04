@@ -90,7 +90,7 @@ void LinearClipTahnDerivative(float* inputMatrix, float* gradientMatrix, float* 
 // MatMulMatT(handle, batchSize, outputFeatures, inputFeatures, gpuOutputGradientMatrix, gpuWeightMatrix, gpuInputGradientMatrix);
 
 // To update the weights, use the following from cublas:
-// cublasSaxpy(handle, batchSize * outputFeatures, &learningRate, gpuWeightGradientMatrix, 1, gpuWeightMatrix, 1);
+// cublasSaxpy(handle, inputFeatures * outputFeatures, &learningRate, gpuWeightGradientMatrix, 1, gpuWeightMatrix, 1);
 
 int main() {
 	curandGenerator_t randomGenerator;
