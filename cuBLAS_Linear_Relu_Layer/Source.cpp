@@ -12,17 +12,32 @@ using std::chrono::nanoseconds;
 const float ONE = 1.0f;
 const float ZERO = 0.0f;
 
-void MatMulMat(cublasHandle_t handle, size_t matrix1Rows, size_t matrix1Columns, size_t matrix2Columns, float* matrix1, float* matrix2, float* matrix3) {
-	cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, matrix2Columns, matrix1Rows, matrix1Columns, &ONE, matrix2, matrix2Columns, matrix1, matrix1Columns, &ZERO, matrix3, matrix2Columns);	// doing row-major math using column major apis
+// In c++, all matrices are stored in row-major order
+// These functions do run column-major operations with row-major matrices
+// If the function transposes the matrix, pass in the original matrix and the function will "transpose" it for you
+
+void MatMulMat(cublasHandle_t handle, size_t matrix1Rows, size_t matrix1Columns, size_t matrix2Columns, float* matrix1, float* matrix2, float* outputMatrix) {
+	cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, matrix2Columns, matrix1Rows, matrix1Columns, &ONE, matrix2, matrix2Columns, matrix1, matrix1Columns, &ZERO, outputMatrix, matrix2Columns);	// doing row-major math using column major apis
+	// A * B = C					// A is matrix1, B is matrix2, C is outputMatrix
+	// (a x b) * (b x c) = (a x c)	// operation equation
+	// (a x b) * (b x c) = (a x c)	// original matrix dimensions
+	// input is a, b, c, A, B, C
 }
 
-void MatTMulMat(cublasHandle_t handle, size_t matrix1Rows, size_t matrix1Columns, size_t matrix2Columns, float* matrix1, float* matrix2, float* matrix3) {
-	cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, matrix2Columns, matrix1Rows, matrix1Columns, &ONE, matrix2, matrix2Columns, matrix1, matrix1Rows, &ZERO, matrix3, matrix2Columns);	// doing row-major math using column major apis
-	// change names, make it based of row major notation
+void MatTMulMat(cublasHandle_t handle, size_t matrix1Columns, size_t matrix1Rows, size_t matrix2Columns, float* matrix1, float* matrix2, float* outputMatrix) {
+	cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, matrix2Columns, matrix1Columns, matrix1Rows, &ONE, matrix2, matrix2Columns, matrix1, matrix1Columns, &ZERO, outputMatrix, matrix2Columns);	// doing row-major math using column major apis
+	// A ^ T * B = C				// A is matrix1, B is matrix2, C is outputMatrix
+	// (b x a) * (a x c) = (b x c)	// operation equation
+	// (a x b) * (a x c) = (b x c)	// original matrix dimensions
+	// input is b, a, c, A, B, C
 }
 
-void MatMulMatT(cublasHandle_t handle, size_t matrix1Rows, size_t matrix1Columns, size_t matrix2Columns, float* matrix1, float* matrix2, float* matrix3) {
-	cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, matrix2Columns, matrix1Rows, matrix1Columns, &ONE, matrix2, matrix1Columns, matrix1, matrix1Columns, &ZERO, matrix3, matrix2Columns);	// doing row-major math using column major apis
+void MatMulMatT(cublasHandle_t handle, size_t matrix1Rows, size_t matrix1Columns, size_t matrix2Rows, float* matrix1, float* matrix2, float* outputMatrix) {
+	cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, matrix2Rows, matrix1Rows, matrix1Columns, &ONE, matrix2, matrix1Columns, matrix1, matrix1Columns, &ZERO, outputMatrix, matrix2Rows);	// doing row-major math using column major apis
+	// A * B ^ T = C				// A is matrix1, B is matrix2, C is outputMatrix
+	// (a x b) * (b x c) = (a x c)	// operation equation
+	// (a x b) * (c x b) = (a x c)	// original matrix dimensions
+	// input is a, b, c, A, B, C
 }
 
 void RandFillMat(curandGenerator_t randomGenerator, float* matrix, size_t size, float mean = 0.0f, float deviation = 1.0f) {
@@ -64,6 +79,18 @@ void LinearClipTahnDerivative(float* inputMatrix, float* gradientMatrix, float* 
 	dim3 threads(1024);							// x * y * z can't exceed 1024 it seems
 	CudaLinearClipTahnDerivative <<<blocks, thread>>> (inputMatrix, gradientMatrix, outputMatrix, size);
 }
+
+// A linear layer followed by a clip tahn activation function is as follows:
+// MatMulMat(handle, batchSize, inputFeatures, outputFeatures, gpuInputMatrix, gpuWeightMatrix, gpuOutputMatrix);
+// LinearClipTahn(gpuOutputMatrix, gpuActivatedOutputMatrix, batchSize * outputFeatures);
+
+// The derivative of the linear layer followed by a clip tahn activation function is as follows:
+// LinearClipTahnDerivative(gpuActivatedOutputMatrix, gpuActivatedOutputGradientMatrix, gpuOutputGradientMatrix, batchSize * outputFeatures);
+// MatTMulMat(handle, inputFeatures, batchSize, outputFeatures, gpuInputMatrix, gpuOutputGradientMatrix, gpuWeightGradientMatrix);
+// MatMulMatT(handle, batchSize, outputFeatures, inputFeatures, gpuOutputGradientMatrix, gpuWeightMatrix, gpuInputGradientMatrix);
+
+// To update the weights, use the following from cublas:
+// cublasSaxpy(handle, batchSize * outputFeatures, &learningRate, gpuWeightGradientMatrix, 1, gpuWeightMatrix, 1);
 
 int main() {
 	curandGenerator_t randomGenerator;
