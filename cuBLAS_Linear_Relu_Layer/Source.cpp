@@ -77,7 +77,7 @@ __global__ void CudaLinearClipTahnDerivative(float* inputMatrix, float* gradient
 void LinearClipTahnDerivative(float* inputMatrix, float* gradientMatrix, float* outputMatrix, size_t size) {
 	size_t blocks = 0.0009765625f * size + 1;	// I think this can't exceed 2147483647
 	dim3 threads(1024);							// x * y * z can't exceed 1024 it seems
-	CudaLinearClipTahnDerivative <<<blocks, thread>>> (inputMatrix, gradientMatrix, outputMatrix, size);
+	CudaLinearClipTahnDerivative <<<blocks, threads>>> (inputMatrix, gradientMatrix, outputMatrix, size);
 }
 
 // A linear layer followed by a clip tahn activation function is as follows:
@@ -107,9 +107,13 @@ int main() {
 
 	const size_t numIterations = 100;
 
-	size_t batchSize = 1 << 8;
+	/*size_t batchSize = 1 << 8;
 	size_t inputFeatures = 1 << 10;
-	size_t outputFeatures = 1 << 9;
+	size_t outputFeatures = 1 << 9;*/
+
+	size_t batchSize = 1;
+	size_t inputFeatures = 5;
+	size_t outputFeatures = 3;
 
 	float* gpuInputMatrix, * gpuWeightMatrix, * gpuOutputMatrix;
 	cudaMallocManaged(&gpuInputMatrix, batchSize * inputFeatures * sizeof(float));
@@ -244,18 +248,18 @@ int main() {
 
 
 
-	// relu
+	// Linear Clip Tahn
 	RandFillMat(randomGenerator, gpuInputMatrix, batchSize * inputFeatures);
 
-	float* gpuReluOutput;
-	cudaMalloc(&gpuReluOutput, batchSize * inputFeatures * sizeof(float));
+	float* gpuLinearClipTahnOutput;
+	cudaMalloc(&gpuLinearClipTahnOutput, batchSize * inputFeatures * sizeof(float));
 
-	float* cpuReluOutput = new float[batchSize * inputFeatures];
+	float* cpuLinearClipTahnOutput = new float[batchSize * inputFeatures];
 
 	iterations = numIterations;
 	cudaEventRecord(start, 0);
 	while (iterations--) {
-		Relu(gpuInputMatrix, gpuReluOutput, batchSize * inputFeatures);
+		LinearClipTahn(gpuInputMatrix, gpuLinearClipTahnOutput, batchSize * inputFeatures);
 	}
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
@@ -263,22 +267,31 @@ int main() {
 	cout << "Time: " << elapsedTime / numIterations << " ms" << endl;
 
 	cudaMemcpy(cpuInputMatrix, gpuInputMatrix, batchSize * inputFeatures * sizeof(float), cudaMemcpyDeviceToHost);
-	cudaMemcpy(cpuReluOutput, gpuReluOutput, batchSize * inputFeatures * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(cpuLinearClipTahnOutput, gpuLinearClipTahnOutput, batchSize * inputFeatures * sizeof(float), cudaMemcpyDeviceToHost);
 
 	output = new float[batchSize * inputFeatures];
 	for (size_t i = 0; i < batchSize * inputFeatures; i++) {
-		output[i] = cpuInputMatrix[i] * (cpuInputMatrix[i] > 0);
+		float input = cpuInputMatrix[i] + 1;
+		input = (input > 0) * input - 2;
+		output[i] = (input < 0) * input + 1;
 	}
 
 	error = 0;
 	for (size_t i = 0; i < batchSize * inputFeatures; i++) {
-		error += abs(cpuReluOutput[i] - output[i]);
-		if (abs(cpuReluOutput[i] - output[i]) > 0.0001) {
-			cout << "Error at " << i << ": " << cpuReluOutput[i] << " " << output[i] << endl;
+		error += abs(cpuLinearClipTahnOutput[i] - output[i]);
+		if (abs(cpuLinearClipTahnOutput[i] - output[i]) > 0.0001) {
+			cout << "Error at " << i << ": " << cpuLinearClipTahnOutput[i] << " " << output[i] << endl;
 		}
 	}
 	cout << "Average error: " << error / (batchSize * inputFeatures) << endl;
 	delete[] output;
+	
+
+	
+	// Linear Clip Tahn Derivative
+	RandFillMat(randomGenerator, gpuOutputMatrix, batchSize * inputFeatures);
+	
+	float* gpuLinearClipTahnGradient
 
 
 
